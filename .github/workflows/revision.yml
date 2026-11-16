@@ -1,0 +1,36 @@
+# Revisión editorial automática: se ejecuta en cada push y en cada Pull Request.
+# Comprueba que índice y archivos coincidan, que no haya enlaces rotos entre
+# capítulos, que el título sea el mismo en la web y en los ebooks, que no se
+# haya versionado nada prohibido (.env, PDF, DOCX, códigos de recuperación) y
+# que el libro compile con mdBook. Las marcas [AUTOR]/[PENDIENTE] se listan
+# como avisos, sin bloquear.
+name: Revisión editorial
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  revisar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Revisar estructura y enlaces
+        env:
+          # Un repositorio público no puede contener la carpeta privada proceso/.
+          REPO_PUBLICO: ${{ !github.event.repository.private }}
+        run: python3 tools/libro.py revisar
+
+      - name: Instalar mdBook
+        uses: peaceiris/actions-mdbook@v2
+        with:
+          mdbook-version: "latest"
+
+      - name: Comprobar que el sitio compila
+        run: mdbook build

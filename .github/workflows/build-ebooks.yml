@@ -1,0 +1,133 @@
+# Compila el libro en PDF, EPUB y Kindle (AZW3).
+#
+# - Cada push a main que toque el contenido actualiza la publicación
+#   "ebook" (enlaces fijos del README: .../releases/download/ebook/libro.pdf).
+# - Cada etiqueta de versión (v0.5, v1.0, ...) crea además una publicación
+#   propia que NO se sobrescribe: así queda constancia de cada edición.
+#       git tag v1.0 && git push origin v1.0
+# - Título, subtítulo y autor salen de metadatos.yml; el orden de los
+#   capítulos sale de src/SUMMARY.md (el mismo índice que la web).
+name: Generar PDF, EPUB y versión Kindle
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+    paths:
+      - "src/**"
+      - "book.toml"
+      - "metadatos.yml"
+      - "tools/**"
+      - ".github/workflows/build-ebooks.yml"
+  workflow_dispatch:
+
+# Evita mojibake en acentos (á, é, í, ó, ú, ñ) al pasar metadatos por línea de comandos.
+env:
+  LANG: C.UTF-8
+  LC_ALL: C.UTF-8
+
+permissions:
+  contents: write
+
+concurrency:
+  group: "ebooks-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Pandoc, LaTeX (PDF) y Calibre (conversión a Kindle)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pandoc \
+            texlive-xetex \
+            texlive-latex-recommended \
+            texlive-latex-extra \
+            texlive-fonts-recommended \
+            texlive-lang-spanish \
+            lmodern \
+            fonts-dejavu \
+            calibre
+
+      - name: Determinar versión y orden de capítulos
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "EDICION=Versión ${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          else
+            echo "EDICION=Borrador del $(git log -1 --format=%cs) (${GITHUB_SHA::7})" >> "$GITHUB_ENV"
+          fi
+          python3 tools/libro.py orden > capitulos.txt
+          echo "Orden de compilación:"; cat capitulos.txt
+          mkdir -p dist
+
+      - name: Compilar PDF
+        run: |
+          mapfile -t FILES < capitulos.txt
+          pandoc "${FILES[@]}" \
+            -o dist/libro.pdf \
+            --metadata-file=metadatos.yml \
+            -M date="$EDICION" \
+            --lua-filter=tools/ebook/pdf-fixups.lua \
+            --pdf-engine=xelatex \
+            --toc --toc-depth=2 \
+            -V documentclass=book \
+            -V geometry:margin=2.5cm \
+            -V mainfont="DejaVu Serif" \
+            -H tools/ebook/pdf-header-includes.tex
+
+      - name: Compilar EPUB
+        run: |
+          mapfile -t FILES < capitulos.txt
+          pandoc "${FILES[@]}" \
+            -o dist/libro.epub \
+            --metadata-file=metadatos.yml \
+            -M date="$EDICION" \
+            --toc --toc-depth=2
+
+      - name: Convertir a Kindle (AZW3)
+        run: ebook-convert dist/libro.epub dist/libro.azw3
+
+      - name: Subir como artefactos de la ejecución
+        uses: actions/upload-artifact@v4
+        with:
+          name: libro-ebooks
+          path: dist/libro.*
+
+      - name: Actualizar la publicación "ebook" (versión más reciente)
+        if: github.ref == 'refs/heads/main'
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ebook
+          commit: ${{ github.sha }}
+          name: "Libro — versión descargable (PDF / EPUB / Kindle)"
+          body: |
+            ${{ env.EDICION }}. Generado automáticamente desde el commit ${{ github.sha }}.
+            Estos archivos se actualizan solos con cada cambio en `src/`.
+            Las ediciones numeradas (v0.5, v1.0…) se conservan por separado en esta misma sección.
+          allowUpdates: true
+          replacesArtifacts: true
+          artifacts: "dist/libro.pdf,dist/libro.epub,dist/libro.azw3"
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Crear la publicación de esta versión
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          base="${GITHUB_REPOSITORY#*/}-${GITHUB_REF_NAME}"
+          for ext in pdf epub azw3; do cp "dist/libro.$ext" "dist/$base.$ext"; done
+          echo "BASE=$base" >> "$GITHUB_ENV"
+
+      - name: Publicar la versión numerada
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.ref_name }}
+          name: "${{ env.EDICION }}"
+          body: "Edición ${{ github.ref_name }} del libro, congelada en el commit ${{ github.sha }}."
+          allowUpdates: true
+          artifacts: "dist/${{ env.BASE }}.pdf,dist/${{ env.BASE }}.epub,dist/${{ env.BASE }}.azw3"
+          token: ${{ secrets.GITHUB_TOKEN }}

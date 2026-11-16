@@ -1,0 +1,16 @@
+[book]
+title = "Del conocimiento al reconocimiento"
+authors = ["Dr. Pablo Eduardo Cancino Marentes"]
+description = "Ninguna montaña se transforma sin un creyente transformado por dentro. A partir de 2 Pedro 1:2, este manual traza tres niveles del conocimiento de Dios: oida, el despertar; ginosko, el camino relacional, y epiginosko, el reconocimiento pleno. Así se forma la profundidad interior que hace genuina la misión en las siete esferas de influencia."
+language = "es"
+src = "src"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/PabloeCancino/Libro_revelacion"
+edit-url-template = "https://github.com/PabloeCancino/Libro_revelacion/edit/main/{path}"
+
+[output.html.search]
+enable = true
+limit-results = 20
